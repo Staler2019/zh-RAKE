@@ -24,30 +24,12 @@ import six
 from six.moves import range
 from collections import Counter
 
-debug = False
-test = False
-
-
 def is_number(s):
     try:
         float(s) if '.' in s else int(s)
         return True
     except ValueError:
         return False
-
-
-def load_stop_words(stop_word_file):
-    """
-    Utility function to load stop words from a file and return as a list of words
-    @param stop_word_file Path and file name of a file containing stop words.
-    @return list A list of stop words.
-    """
-    stop_words = []
-    for line in open(stop_word_file):
-        if line.strip()[0:1] != "#":
-            for word in line.split():  # in case more than one per line
-                stop_words.append(word)
-    return stop_words
 
 
 def separate_words(text, min_word_return_size):
@@ -74,15 +56,6 @@ def split_sentences(text):
     sentence_delimiters = re.compile(u'[\\[\\]\n.!?,;:\t\\-\\"\\(\\)\\\'\u2019\u2013]')
     sentences = sentence_delimiters.split(text)
     return sentences
-
-
-def build_stop_word_regex(stop_word_list):
-    stop_word_regex_list = []
-    for word in stop_word_list:
-        word_regex = '\\b' + word + '\\b'
-        stop_word_regex_list.append(word_regex)
-    stop_word_pattern = re.compile('|'.join(stop_word_regex_list), re.IGNORECASE)
-    return stop_word_pattern
 
 
 #
@@ -156,12 +129,15 @@ def filter_adjoined_candidates(candidates, min_freq):
     return filtered_candidates
 
 
-def generate_candidate_keywords(sentence_list, stopword_pattern, stop_word_list, min_char_length=1, max_words_length=5,
+## stopword_pattern is a set
+def generate_candidate_keywords(sentence_list, stop_word_list, min_char_length=1, max_words_length=5,
                                 min_words_length_adj=1, max_words_length_adj=1, min_phrase_freq_adj=2):
     phrase_list = []
     for s in sentence_list:
-        tmp = re.sub(stopword_pattern, '|', s.strip())
-        phrases = tmp.split("|")
+        s = s.strip() # remove leading & tail space
+        for stopword in stop_word_list:
+            s = s.replace(stopword, '|')
+        phrases = s.split("|")
         for phrase in phrases:
             phrase = phrase.strip().lower()
             if phrase != "" and is_acceptable(phrase, min_char_length, max_words_length):
@@ -241,10 +217,9 @@ def generate_candidate_keyword_scores(phrase_list, word_score, min_keyword_frequ
 
 
 class Rake(object):
-    def __init__(self, stop_words_path, min_char_length=1, max_words_length=5, min_keyword_frequency=1,
+    def __init__(self, stop_words, min_char_length=1, max_words_length=5, min_keyword_frequency=1,
                  min_words_length_adj=1, max_words_length_adj=1, min_phrase_freq_adj=2):
-        self.__stop_words_path = stop_words_path
-        self.__stop_words_list = load_stop_words(stop_words_path)
+        self.__stop_words_list = [word.lower() for word in set(stop_words)]
         self.__min_char_length = min_char_length
         self.__max_words_length = max_words_length
         self.__min_keyword_frequency = min_keyword_frequency
@@ -255,9 +230,7 @@ class Rake(object):
     def run(self, text):
         sentence_list = split_sentences(text)
 
-        stop_words_pattern = build_stop_word_regex(self.__stop_words_list)
-
-        phrase_list = generate_candidate_keywords(sentence_list, stop_words_pattern, self.__stop_words_list,
+        phrase_list = generate_candidate_keywords(sentence_list, self.__stop_words_list,
                                                   self.__min_char_length, self.__max_words_length,
                                                   self.__min_words_length_adj, self.__max_words_length_adj,
                                                   self.__min_phrase_freq_adj)
@@ -268,34 +241,3 @@ class Rake(object):
 
         sorted_keywords = sorted(six.iteritems(keyword_candidates), key=operator.itemgetter(1), reverse=True)
         return sorted_keywords
-
-
-if test and __name__ == '__main__':
-    text = "Compatibility of systems of linear constraints over the set of natural numbers. Criteria of compatibility of a system of linear Diophantine equations, strict inequations, and nonstrict inequations are considered. Upper bounds for components of a minimal set of solutions and algorithms of construction of minimal generating sets of solutions for all types of systems are given. These criteria and the corresponding algorithms for constructing a minimal supporting set of solutions can be used in solving all the considered types of systems and systems of mixed types."
-
-    # Split text into sentences
-    sentenceList = split_sentences(text)
-    # stoppath = "FoxStoplist.txt" #Fox stoplist contains "numbers", so it will not find "natural numbers" like in Table 1.1
-    stoppath = "data/stoplists/SmartStoplist.txt"  # SMART stoplist misses some of the lower-scoring keywords in Figure 1.5, which means that the top 1/3 cuts off one of the 4.0 score words in Table 1.1
-    stopwordpattern = build_stop_word_regex(stoppath)
-
-    # generate candidate keywords
-    phraseList = generate_candidate_keywords(sentenceList, stopwordpattern, load_stop_words(stoppath))
-
-    # calculate individual word scores
-    wordscores = calculate_word_scores(phraseList)
-
-    # generate candidate keyword scores
-    keywordcandidates = generate_candidate_keyword_scores(phraseList, wordscores)
-    if debug: print(keywordcandidates)
-
-    sortedKeywords = sorted(six.iteritems(keywordcandidates), key=operator.itemgetter(1), reverse=True)
-    if debug: print(sortedKeywords)
-
-    totalKeywords = len(sortedKeywords)
-    if debug: print(totalKeywords)
-    print(sortedKeywords[0:(totalKeywords // 3)])
-
-    rake = Rake("data/stoplists/SmartStoplist.txt")
-    keywords = rake.run(text)
-    print(keywords)
